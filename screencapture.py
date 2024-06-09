@@ -1,3 +1,4 @@
+import numpy
 import numpy as np
 from PIL import ImageGrab
 import cv2
@@ -18,7 +19,7 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from models.common import DetectMultiBackend
-from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
+from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams,LoadImagesDirectly
 from utils.general import (LOGGER, Profile, check_file, check_img_size, check_imshow, check_requirements, colorstr, cv2,
                            increment_path, non_max_suppression, print_args, scale_boxes, strip_optimizer, xyxy2xywh)
 from utils.plots import Annotator, colors, save_one_box
@@ -106,8 +107,9 @@ def predict(
         bs = len(dataset)
     elif screenshot:
         dataset = LoadScreenshots(source, img_size=imgsz, stride=stride, auto=pt)
-    else:
+    else :
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
+
     vid_path, vid_writer = [None] * bs, [None] * bs
 
     # Run inference
@@ -176,81 +178,6 @@ def predict(
             # Stream results
             im0 = annotator.result()
     return im0
-def predict_img(
-        weights=ROOT / 'yolo.pt',  # model path or triton URL
-        img=ROOT / 'data/images',  # file/dir/URL/glob/screen/0(webcam)
-        data=ROOT / 'data/coco.yaml',  # dataset.yaml path
-        imgsz=(640, 640),  # inference size (height, width)
-        conf_thres=0.25,  # confidence threshold
-        iou_thres=0.45,  # NMS IOU threshold
-        max_det=1000,  # maximum detections per image
-        device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
-        view_img=False,  # show results
-        save_txt=False,  # save results to *.txt
-        save_conf=False,  # save confidences in --save-txt labels
-        save_crop=False,  # save cropped prediction boxes
-        nosave=False,  # do not save images/videos
-        classes=None,  # filter by class: --class 0, or --class 0 2 3
-        agnostic_nms=False,  # class-agnostic NMS
-        augment=False,  # augmented inference
-        visualize=False,  # visualize features
-        update=False,  # update all models
-        project=ROOT / 'runs/detect',  # save results to project/name
-        name='exp',  # save results to project/name
-        exist_ok=False,  # existing project/name ok, do not increment
-        line_thickness=3,  # bounding box thickness (pixels)
-        hide_labels=False,  # hide labels
-        hide_conf=False,  # hide confidences
-        half=False,  # use FP16 half-precision inference
-        dnn=False,  # use OpenCV DNN for ONNX inference
-        vid_stride=1,  # video frame-rate stride
-):
-    # Load model
-    device = select_device(device)
-    model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
-    stride, names, pt = model.stride, model.names, model.pt
-    imgsz = check_img_size(imgsz, s=stride)  # check image size
-
-    # Dataloader
-    bs = 1  # batch_size
-    vid_path, vid_writer = [None] * bs, [None] * bs
-
-    # Run inference
-    model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
-    seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
-    with dt[0]:
-        im = torch.from_numpy(img).to(model.device)
-        im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
-        im /= 255  # 0 - 255 to 0.0 - 1.0
-        if len(im.shape) == 3:
-            im = im[None]  # expand for batch dim
-
-    # Inference
-    with dt[1]:
-        pred = model(im, augment=augment, visualize=visualize)
-
-    # NMS
-    with dt[2]:
-        pred = non_max_suppression(pred[0], conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
-
-    # Second-stage classifier (optional)
-    # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
-
-    # Process predictions
-    for i, det in enumerate(pred):  # per image
-        seen += 1
-
-        im0, frame =img.copy()
-        s = "img"
-        p = Path(p)  # to Path
-        s += '%gx%g ' % im.shape[2:]  # print string
-        gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-        imc = im0.copy() if save_crop else im0  # for save_crop
-        annotator = Annotator(im0, line_width=line_thickness, example=str(names))
-
-        # Stream results
-        im0 = annotator.result()
-    return im0
 def run_yolov9():
     last_time = time.time()
     while True:
@@ -261,7 +188,7 @@ def run_yolov9():
         #detecting objects
         blob = cv2.dnn.blobFromImage(img,0.00392,(416,416),(0,0,0),True,crop=False)
         cv2.imwrite("temp.png", img)
-        img0 = predict(weights="./model/yolov9c_cs2.pt", source="temp.png", imgsz=(416,416))
+        img0 = predict(weights="./model/yolov9-e.pt", source="temp.png", imgsz=(416,416), device=0)
         #Showing info on screen/ get confidence score of algorithm in detecting an object in blob
 
         last_time = time.time()

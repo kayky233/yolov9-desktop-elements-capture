@@ -14,21 +14,36 @@ import pyautogui
 from PIL import ImageGrab, Image
 import pyscreeze
 import cv2
-
 import torch
-
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # YOLO root directory
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))  # add ROOT to PATH
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
-
+import openai
+from google.cloud import vision
+import io
 from models.common import DetectMultiBackend
 from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams,LoadImagesDirectly
 from utils.general import (LOGGER, Profile, check_file, check_img_size, check_imshow, check_requirements, colorstr, cv2,
                            increment_path, non_max_suppression, print_args, scale_boxes, strip_optimizer, xyxy2xywh)
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
+
+# 从环境变量中读取API密钥
+openai.api_key = os.getenv("OPENAI_API_KEY")
+# 设置 Google Cloud 认证环境变量
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'D:\code_HW\yolov9\yolov9-desktop-elements-capture\fit-aleph-411206-f11a71fdce69.json'
+
+# 确保环境变量已正确设置
+if not openai.api_key:
+    raise ValueError("API key not found. Please set the OPENAI_API_KEY environment variable.")
+
+# 设置代理环境变量
+os.environ['http_proxy'] = 'http://127.0.0.1:7899'
+os.environ['https_proxy'] = 'http://127.0.0.1:7899'
+os.environ['ALL_PROXY'] = 'socks5://127.0.0.1:7898'
+
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[0]  # YOLO root directory
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))  # add ROOT to PATH
+ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 def grab_screen(region=None):
     hwin = win32gui.GetDesktopWindow()
@@ -56,6 +71,39 @@ def grab_screen(region=None):
     win32gui.ReleaseDC(hwin, hwindc)
     win32gui.DeleteObject(bmp.GetHandle())
     return cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+
+def analyze_image(image_path):
+    client = vision.ImageAnnotatorClient()
+    with io.open(image_path, 'rb') as image_file:
+        content = image_file.read()
+    image = vision.Image(content=content)
+    response = client.label_detection(image=image)
+    labels = response.label_annotations
+    descriptions = [label.description for label in labels]
+    return ', '.join(descriptions)
+
+def generate_explanation(description):
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": description}
+        ]
+    )
+    return response['choices'][0]['message']['content']
+def ana_video():
+    frames_folder = r'.\tmp_img_folder'
+    descriptions = []
+    for frame_file in sorted(os.listdir(frames_folder)):
+        if frame_file.endswith('.png'):
+            frame_path = os.path.join(frames_folder, frame_file)
+            description = analyze_image(frame_path)
+            descriptions.append(f"Frame {frame_file}: {description}")
+
+    full_description = ' '.join(descriptions)
+    explanation = generate_explanation(full_description)
+    print("Generated Explanation:")
+    print(explanation)
 def run():
     last_time = time.time()
     while True:
@@ -64,48 +112,13 @@ def run():
         img = cv2.resize(screen,None,fx=1,fy=1)
         height,width,channels = img.shape
         #detecting objects
-        cv2.imwrite("temp.png", img)
-        # 屏幕缩放系数 mac缩放是2 windows一般是1
-        screenScale = 1
-
-        # 事先读取按钮截图
-        target = cv2.imread(r"banana.png", cv2.IMREAD_GRAYSCALE)
-
-        # 读取图片 灰色会快
-        temp = cv2.imread(r'temp.png', cv2.IMREAD_GRAYSCALE)
-
-        theight, twidth = target.shape[:2]
-        tempheight, tempwidth = temp.shape[:2]
-        print("目标图宽高：" + str(twidth) + "-" + str(theight))
-        print("模板图宽高：" + str(tempwidth) + "-" + str(tempheight))
-        # 先缩放屏幕截图 INTER_LINEAR INTER_AREA
-        scaleTemp = cv2.resize(temp, (int(tempwidth / screenScale), int(tempheight / screenScale)))
-        stempheight, stempwidth = scaleTemp.shape[:2]
-        print("缩放后模板图宽高：" + str(stempwidth) + "-" + str(stempheight))
-        # 匹配图片
-        cv2.imwrite("scaleTemp.png", scaleTemp)
-        cv2.imwrite("target.png", target)
-        res = cv2.matchTemplate(scaleTemp, target, cv2.TM_CCOEFF_NORMED)
-        mn_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-        if (max_val >= 0.9):
-            # 计算出中心点
-            top_left = max_loc
-            bottom_right = (top_left[0] + twidth, top_left[1] + theight)
-            tagHalfW = int(twidth / 2)
-            tagHalfH = theight - 50
-            tagCenterX = top_left[0] + tagHalfW
-            tagCenterY = top_left[1] + tagHalfH
-            # 左键点击屏幕上的这个位置
-            pyautogui.moveTo(tagCenterX, tagCenterY)
-            #pyautogui.doubleClick(tagCenterX, tagCenterY, button='left')
-            pyautogui.click(tagCenterX, tagCenterY, button='left')
-        else:
-            print("没找到")
-
+        cv2.imwrite(r".\tmp_img_folder\temp.png", img)
+        ana_video()
         last_time = time.time()
         cv2.imshow('window', img)
         if cv2.waitKey(25) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             break
+
 if __name__ == '__main__':
     run()
